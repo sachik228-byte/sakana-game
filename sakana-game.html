@@ -1,0 +1,1641 @@
+<!DOCTYPE html>
+
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>🦈 かいていバトル</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body {
+    width:100%; height:100%;
+    background:#000;
+    overflow:hidden;
+    touch-action:none;
+    font-family:'Hiragino Maru Gothic ProN','BIZ UDPGothic',sans-serif;
+  }
+  #canvas {
+    display:block;
+    position:fixed;
+    top:0; left:0;
+    width:100%; height:100%;
+  }
+  #ui {
+    position:fixed; top:8px; left:0; right:0;
+    display:flex; justify-content:space-between;
+    padding:0 10px; z-index:10;
+    pointer-events:none; gap:5px;
+  }
+  .badge {
+    background:rgba(0,0,0,0.55);
+    color:#0ff;
+    border-radius:14px;
+    padding:5px 10px;
+    font-size:12px; font-weight:bold;
+    border:1.5px solid rgba(0,255,255,0.3);
+    backdrop-filter:blur(6px);
+    white-space:nowrap;
+    text-shadow:0 0 8px #0ff;
+  }
+  #companions-panel {
+    position:fixed; bottom:14px; right:10px;
+    z-index:10; display:flex; flex-direction:column;
+    align-items:flex-end; gap:5px; pointer-events:none;
+  }
+  .companion-icon {
+    width:34px; height:34px; border-radius:50%;
+    border:2px solid rgba(0,255,255,0.6);
+    display:flex; align-items:center; justify-content:center;
+    font-size:18px;
+    animation:popIn .5s cubic-bezier(.17,.89,.32,1.28);
+  }
+  @keyframes popIn {
+    0%{transform:scale(0) rotate(-30deg);opacity:0}
+    100%{transform:scale(1) rotate(0);opacity:1}
+  }
+  #message {
+    position:fixed; top:50%; left:50%;
+    transform:translate(-50%,-50%);
+    background:rgba(0,0,0,0.85);
+    color:#0ff;
+    border:2px solid #0ff;
+    border-radius:16px;
+    padding:12px 24px;
+    font-size:17px; font-weight:bold;
+    z-index:15; pointer-events:none;
+    opacity:0; transition:opacity .4s;
+    text-align:center; max-width:280px;
+    line-height:1.5;
+    text-shadow:0 0 10px #0ff;
+    box-shadow:0 0 20px rgba(0,255,255,0.3);
+  }
+  #message.show{opacity:1}
+  #tap-ripple {
+    position:fixed; pointer-events:none; z-index:8;
+    border-radius:50%; transform:translate(-50%,-50%) scale(0);
+    background:rgba(0,255,255,0.15);
+    border:2px solid rgba(0,255,255,0.6);
+    width:44px; height:44px;
+  }
+  #tap-ripple.active{animation:rippleOut .5s ease-out forwards}
+  @keyframes rippleOut {
+    0%{transform:translate(-50%,-50%) scale(0);opacity:1}
+    100%{transform:translate(-50%,-50%) scale(2.5);opacity:0}
+  }
+  #overlay {
+    position:fixed; inset:0;
+    background:linear-gradient(160deg,#000b1e 0%,#001a40 50%,#000d20 100%);
+    display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    z-index:20; text-align:center; padding:24px;
+  }
+  #overlay h1 {
+    font-size:42px; color:#0ff;
+    text-shadow:0 0 30px #0ff, 0 0 60px #0af;
+    margin-bottom:8px; letter-spacing:2px;
+  }
+  #overlay .sub {
+    font-size:14px; color:#aef;
+    margin-bottom:20px; letter-spacing:1px;
+    opacity:0.8;
+  }
+  #overlay p {
+    color:#9df; font-size:14px;
+    line-height:1.9; margin-bottom:28px;
+    max-width:300px;
+    border:1px solid rgba(0,255,255,0.2);
+    border-radius:12px; padding:14px 18px;
+    background:rgba(0,255,255,0.04);
+  }
+  #overlay button {
+    background:linear-gradient(135deg,#00c8ff,#0066cc);
+    color:#fff; border:none; border-radius:30px;
+    padding:16px 48px; font-size:20px; font-weight:bold;
+    cursor:pointer; font-family:inherit;
+    box-shadow:0 0 30px rgba(0,200,255,0.5);
+    transition:transform .1s, box-shadow .1s;
+    letter-spacing:1px;
+  }
+  #overlay button:active{transform:scale(0.95)}
+</style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<div id="ui">
+  <div class="badge">🍤 <span id="foodCount">0</span></div>
+  <div class="badge">⚡ <span id="sizeLabel">ちいさい</span></div>
+  <div class="badge">💎 <span id="treasureCount">0</span></div>
+  <div class="badge">👾 なかま: <span id="companionCount">0</span></div>
+</div>
+
+<div id="message"></div>
+<div id="companions-panel"></div>
+<div id="tap-ripple"></div>
+
+<div id="overlay">
+  <h1>🦈 かいていバトル</h1>
+  <div class="sub">DEEP SEA ADVENTURE</div>
+  <p>
+    🍤 エサをたべて パワーアップ！<br>
+    💎 でかくなったら たからをゲット！<br>
+    🦈 レアな生きものに エサをあげると<br>
+    　 なかまになるよ！<br>
+    👆 タップしたところへ むかって泳ぐ
+  </p>
+  <button id="startBtn">🌊 スタート！</button>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+function resize() { canvas.width=window.innerWidth; canvas.height=window.innerHeight; }
+resize();
+window.addEventListener('resize', resize);
+
+// ヘルパー：translate+scale(-1,1)を使わず、dir(1=右,-1=左)で直接座標計算
+// d(dir, x) -> dir===1 ? x : -x  で左右反転
+
+function d(dir, x){ return dir*x; }
+
+// =====================
+//  色ユーティリティ
+// =====================
+function lightenColor(hex, amt) {
+  const r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
+  return 'rgb('+Math.min(255,r+amt)+','+Math.min(255,g+amt)+','+Math.min(255,b+amt)+')';
+}
+function darkenColor(hex, amt) {
+  const r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
+  return 'rgb('+Math.max(0,r-amt)+','+Math.max(0,g-amt)+','+Math.max(0,b-amt)+')';
+}
+
+// =====================
+//  レア生きもの 7種類
+//  (dragon→ミツクリザメ に変更)
+// =====================
+const RARE_FISH_TYPES = [
+  { id:'shark', name:'コザメ', emoji:'🦈',
+    bodyColor:'#607d8b', finColor:'#455a64', eyeColor:'#eceff1',
+    glowColor:'#90caf9', size:1.4, speed:1.3, needFood:4,
+    message:'コザメが なかまに なった！🦈', drawStyle:'shark' },
+  { id:'goblin', name:'ミツクリザメ', emoji:'👹',
+    bodyColor:'#c62828', finColor:'#8d1a1a', eyeColor:'#ffcc80',
+    glowColor:'#ef9a9a', size:1.3, speed:0.9, needFood:5,
+    message:'ミツクリザメが なかまに なった！👹', drawStyle:'goblin' },
+  { id:'whale', name:'シロナガスクジラ', emoji:'🐋',
+    bodyColor:'#1565c0', finColor:'#0d47a1', eyeColor:'#e3f2fd',
+    glowColor:'#64b5f6', size:2.2, speed:0.55, needFood:6,
+    message:'クジラが なかまに なった！🐋', drawStyle:'whale' },
+  { id:'manta', name:'マンタ', emoji:'🟣',
+    bodyColor:'#283593', finColor:'#1a237e', eyeColor:'#c5cae9',
+    glowColor:'#7986cb', size:1.6, speed:0.85, needFood:5,
+    message:'マンタが なかまに なった！🟣', drawStyle:'manta' },
+  { id:'clown', name:'クマノミ', emoji:'🟠',
+    bodyColor:'#e64a19', finColor:'#bf360c', eyeColor:'#ffffff',
+    glowColor:'#ff8a65', size:0.85, speed:1.1, needFood:3,
+    message:'クマノミが なかまに なった！🟠', drawStyle:'clown' },
+  { id:'angler', name:'チョウチンアンコウ', emoji:'🔦',
+    bodyColor:'#4a148c', finColor:'#6a1b9a', eyeColor:'#ffe082',
+    glowColor:'#e040fb', size:1.0, speed:0.7, needFood:4,
+    message:'アンコウが なかまに なった！🔦', drawStyle:'angler' },
+  { id:'turtle', name:'ウミガメ', emoji:'🐢',
+    bodyColor:'#2e7d32', finColor:'#1b5e20', eyeColor:'#ffe082',
+    glowColor:'#66bb6a', size:1.1, speed:0.65, needFood:4,
+    message:'ウミガメが なかまに なった！🐢', drawStyle:'turtle' },
+  { id:'octopus', name:'タコ', emoji:'🐙',
+    bodyColor:'#c2185b', finColor:'#880e4f', eyeColor:'#fce4ec',
+    glowColor:'#f48fb1', size:1.1, speed:0.8, needFood:4,
+    message:'タコが なかまに なった！🐙', drawStyle:'octopus' },
+  { id:'squid', name:'イカ', emoji:'🦑',
+    bodyColor:'#e8eaf6', finColor:'#9fa8da', eyeColor:'#1a237e',
+    glowColor:'#c5cae9', size:1.2, speed:1.1, needFood:4,
+    message:'イカが なかまに なった！🦑', drawStyle:'squid' },
+  { id:'crab', name:'クラゲ', emoji:'🪼',
+    bodyColor:'#ce93d8', finColor:'#9c27b0', eyeColor:'#f3e5f5',
+    glowColor:'#e040fb', size:1.0, speed:0.4, needFood:3,
+    message:'クラゲが なかまに なった！🪼', drawStyle:'jellyfish' },
+  { id:'hammer', name:'シュモクザメ', emoji:'🔨',
+    bodyColor:'#546e7a', finColor:'#37474f', eyeColor:'#eceff1',
+    glowColor:'#b0bec5', size:1.5, speed:1.4, needFood:5,
+    message:'シュモクザメが なかまに なった！🔨', drawStyle:'hammer' },
+  { id:'seahorse', name:'タツノオトシゴ', emoji:'🐠',
+    bodyColor:'#ff8f00', finColor:'#e65100', eyeColor:'#fff9c4',
+    glowColor:'#ffca28', size:0.85, speed:0.5, needFood:3,
+    message:'タツノオトシゴが なかまに なった！🐠', drawStyle:'seahorse' },
+  { id:'whale2', name:'ジンベイザメ', emoji:'🐳',
+    bodyColor:'#1565c0', finColor:'#0a3a6e', eyeColor:'#ffffff',
+    glowColor:'#42a5f5', size:2.5, speed:0.5, needFood:7,
+    message:'ジンベイザメが なかまに なった！🐳', drawStyle:'whale2' },
+];
+
+const SIZES = [
+  { name:'ちいさい', scale:1.0,  needFood:3,  color:'#00bcd4', finColor:'#0097a7', eyeColor:'#fff' },
+  { name:'ふつう',   scale:1.6,  needFood:6,  color:'#2196f3', finColor:'#1565c0', eyeColor:'#fff' },
+  { name:'つよい',   scale:2.4,  needFood:10, color:'#7c4dff', finColor:'#4527a0', eyeColor:'#ffe082' },
+  { name:'さいきょう', scale:3.2, needFood:999,color:'#ff1744', finColor:'#b71c1c', eyeColor:'#ffe082' },
+];
+
+// =====================
+//  ゲーム変数
+// =====================
+let fish, foods, treasures, bubbles, bgParticles;
+let rareFish = null;
+let companions = [];
+let companionFishes = [];
+let rareSpawnTimer = 0;
+const rareSpawnInterval = 420;
+let score = { food:0, treasure:0 };
+let gameRunning = false;
+let touchTarget = null;
+let selectedFish = 'main';
+let keys = {};
+
+// =====================
+//  初期化
+// =====================
+function initGame() {
+  fish = { x:canvas.width/2, y:canvas.height/2, vx:0, vy:0,
+           sizeIndex:0, foodEaten:0, facingRight:true, tailAnim:0 };
+  foods=[]; for(let i=0;i<12;i++) spawnFood();
+  treasures=[]; spawnTreasure();
+  bubbles=[]; for(let i=0;i<22;i++) bubbles.push(randomBubble(true));
+  bgParticles=[]; for(let i=0;i<10;i++) bgParticles.push(randomBgFish());
+  rareFish=null; companions=[]; companionFishes=[];
+  touchTarget=null; selectedFish='main';
+  rareSpawnTimer=Math.floor(rareSpawnInterval*0.4);
+  score={food:0, treasure:0};
+  document.getElementById('companions-panel').innerHTML='';
+  updateUI();
+}
+
+function spawnRareFish() {
+  const avail = RARE_FISH_TYPES.filter(t=>!companions.includes(t.id));
+  if(!avail.length) return;
+  const type = avail[Math.floor(Math.random()*avail.length)];
+  const fromLeft = Math.random()<0.5;
+  rareFish = {
+    type, x:fromLeft?-60:canvas.width+60,
+    y:80+Math.random()*(canvas.height-160),
+    vx:fromLeft?type.speed:-type.speed, vy:0,
+    tailAnim:0, wobble:0, foodGiven:0,
+    heartAnim:0, showHeart:false,
+    leavingTimer:0, maxStay:520,
+    state:'swimming', joinProgress:0, glowAnim:0, sparkles:[],
+  };
+  showMessage('✨ '+type.name+'が あらわれた！\nエサをあげよう！');
+}
+
+function addCompanion(type) {
+  companions.push(type.id);
+  const angleOff=(companions.length-1)*(Math.PI*2/7);
+  companionFishes.push({
+    type, offsetAngle:angleOff,
+    offsetDist:48+companions.length*14,
+    tailAnim:Math.random()*Math.PI*2,
+    glowAnim:Math.random()*Math.PI*2,
+    x:fish.x, y:fish.y, vx:0, vy:0,
+    facingRight:true,
+  });
+  const panel=document.getElementById('companions-panel');
+  const icon=document.createElement('div');
+  icon.className='companion-icon';
+  // rgba形式に変更（8桁hex廃止）
+  icon.style.background='rgba(0,0,0,0.5)';
+  icon.textContent=type.emoji;
+  panel.appendChild(icon);
+  updateUI();
+}
+
+function randomBubble(rY){
+  return { x:Math.random()*canvas.width,
+    y:rY?Math.random()*canvas.height:canvas.height+10,
+    r:2+Math.random()*7, speed:.3+Math.random()*.9, alpha:.1+Math.random()*.3 };
+}
+function randomBgFish(){
+  return { x:Math.random()*canvas.width, y:50+Math.random()*(canvas.height-100),
+    speed:(.3+Math.random()*.5)*(Math.random()<.5?1:-1),
+    size:5+Math.random()*9, color:'hsl('+(Math.random()*60+160)+',60%,55%)' };
+}
+function spawnFood(){
+  const m=40;
+  foods.push({ x:m+Math.random()*(canvas.width-m*2), y:m+Math.random()*(canvas.height-m*2),
+    r:7+Math.random()*4, anim:Math.random()*Math.PI*2, type:Math.random()<.5?'shrimp':'pellet' });
+}
+function spawnTreasure(){
+  treasures=[{ x:40+Math.random()*(canvas.width-80),
+    y:canvas.height-60-Math.random()*80, r:16, anim:0 }];
+}
+
+// =====================
+//  入力
+// =====================
+const rippleEl=document.getElementById('tap-ripple');
+function showRipple(x,y){
+  rippleEl.style.left=x+'px'; rippleEl.style.top=y+'px';
+  rippleEl.classList.remove('active'); void rippleEl.offsetWidth;
+  rippleEl.classList.add('active');
+}
+function canvasPos(cx,cy){
+  const r=canvas.getBoundingClientRect();
+  return { x:(cx-r.left)*(canvas.width/r.width), y:(cy-r.top)*(canvas.height/r.height) };
+}
+
+canvas.addEventListener('pointerdown',e=>{
+  e.preventDefault(); if(!gameRunning) return;
+  const pos=canvasPos(e.clientX,e.clientY);
+  let tapped=false;
+
+  if(!tapped && rareFish && (rareFish.state==='swimming'||rareFish.state==='leaving')){
+    const dx=pos.x-rareFish.x, dy=pos.y-rareFish.y;
+    if(dx*dx+dy*dy<(30*rareFish.type.size)*(30*rareFish.type.size)){
+      selectedFish='rare'; touchTarget=null;
+      showMessage(rareFish.type.name+'を えらんだよ！'); tapped=true;
+    }
+  }
+  if(!tapped){
+    for(let i=0;i<companionFishes.length;i++){
+      const c=companionFishes[i];
+      const dx=pos.x-c.x, dy=pos.y-c.y;
+      if(dx*dx+dy*dy<24*24){
+        selectedFish=i; touchTarget=null;
+        showMessage(c.type.name+'を えらんだよ！'); tapped=true; break;
+      }
+    }
+  }
+  if(!tapped){
+    const dx=pos.x-fish.x, dy=pos.y-fish.y;
+    const hr=28*SIZES[fish.sizeIndex].scale;
+    if(dx*dx+dy*dy<hr*hr && selectedFish!=='main'){
+      selectedFish='main'; touchTarget=null;
+      showMessage('じぶんの さかなに もどったよ！'); tapped=true;
+    }
+  }
+  if(!tapped){ touchTarget=pos; showRipple(e.clientX,e.clientY); }
+});
+canvas.addEventListener('pointermove',e=>{
+  e.preventDefault(); if(!gameRunning||e.buttons===0) return;
+  touchTarget=canvasPos(e.clientX,e.clientY);
+});
+canvas.addEventListener('pointerup',e=>e.preventDefault());
+canvas.addEventListener('pointercancel',e=>e.preventDefault());
+document.addEventListener('keydown',e=>{ keys[e.key]=true; });
+document.addEventListener('keyup',e=>{ keys[e.key]=false; });
+
+// =====================
+//  ゲームループ
+// =====================
+function gameLoop(){ if(!gameRunning) return; update(); draw(); requestAnimationFrame(gameLoop); }
+
+function update(){
+  const maxV=1.9, friction=0.85, accel=0.33;
+  const size=SIZES[fish.sizeIndex];
+
+  // タッチ入力の適用先
+  const sel=selectedFish;
+  const ctrlObj = sel==='main'?fish : sel==='rare'?(rareFish||null) : (companionFishes[sel]||null);
+
+  if(touchTarget && ctrlObj){
+    const dx=touchTarget.x-ctrlObj.x, dy=touchTarget.y-ctrlObj.y;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    if(dist>8){
+      ctrlObj.vx=(ctrlObj.vx||0)+(dx/dist)*accel;
+      ctrlObj.vy=(ctrlObj.vy||0)+(dy/dist)*accel;
+      if(sel==='main') fish.facingRight=dx>0;
+      else if(typeof sel==='number' && companionFishes[sel]) companionFishes[sel].facingRight=dx>0;
+    } else {
+      touchTarget=null;
+    }
+  }
+  if(keys['ArrowLeft']){fish.vx-=accel;fish.facingRight=false;touchTarget=null;selectedFish='main';}
+  if(keys['ArrowRight']){fish.vx+=accel;fish.facingRight=true;touchTarget=null;selectedFish='main';}
+  if(keys['ArrowUp']){fish.vy-=accel;touchTarget=null;selectedFish='main';}
+  if(keys['ArrowDown']){fish.vy+=accel;touchTarget=null;selectedFish='main';}
+
+  if(sel==='rare' && !rareFish) selectedFish='main';
+
+  // メイン魚の更新
+  fish.vx=Math.max(-maxV,Math.min(maxV,fish.vx))*friction;
+  fish.vy=Math.max(-maxV,Math.min(maxV,fish.vy))*friction;
+  fish.x+=fish.vx; fish.y+=fish.vy;
+  const fs=22*size.scale;
+  fish.x=Math.max(fs,Math.min(canvas.width-fs,fish.x));
+  fish.y=Math.max(fs,Math.min(canvas.height-fs,fish.y));
+  fish.tailAnim+=0.15;
+
+  // エサ
+  const eatR=20*size.scale;
+  for(let i=foods.length-1;i>=0;i--){
+    const f=foods[i]; f.anim+=0.05;
+    const dx=fish.x-f.x, dy=fish.y-f.y;
+    if(dx*dx+dy*dy<eatR*eatR){
+      foods.splice(i,1); fish.foodEaten++; score.food++;
+      spawnFood(); showMessage('もぐもぐ！🍤');
+      if(fish.sizeIndex<SIZES.length-1 && fish.foodEaten>=SIZES[fish.sizeIndex].needFood){
+        fish.sizeIndex++; fish.foodEaten=0;
+        setTimeout(()=>showMessage('パワーアップ！⚡'),500);
+        if(fish.sizeIndex===SIZES.length-1)
+          setTimeout(()=>showMessage('さいきょう！\nゴールドせんすいかん！💎'),1200);
+      }
+      updateUI();
+    }
+  }
+  // たから
+  if(fish.sizeIndex>=2){
+    for(let i=treasures.length-1;i>=0;i--){
+      const t=treasures[i]; t.anim+=0.04;
+      const dx=fish.x-t.x, dy=fish.y-t.y;
+      if(dx*dx+dy*dy<(26*size.scale)*(26*size.scale)){
+        treasures.splice(i,1); score.treasure++;
+        showMessage('たからゲット！💎✨'); updateUI();
+        setTimeout(()=>spawnTreasure(),3000);
+      }
+    }
+  }
+
+  // レアスポーン
+  if(!rareFish){ if(--rareSpawnTimer<=0){ spawnRareFish(); rareSpawnTimer=rareSpawnInterval+Math.floor(Math.random()*200); } }
+  if(rareFish) updateRareFish();
+  updateCompanions();
+
+  bubbles.forEach(b=>{
+    b.y-=b.speed; b.x+=Math.sin(b.y*.03)*.5;
+    if(b.y<-20) Object.assign(b,randomBubble(false));
+  });
+  bgParticles.forEach(p=>{
+    p.x+=p.speed;
+    if(p.speed>0&&p.x>canvas.width+40) p.x=-40;
+    if(p.speed<0&&p.x<-40) p.x=canvas.width+40;
+  });
+}
+
+function updateRareFish(){
+  const rf=rareFish;
+  rf.tailAnim+=0.1; rf.wobble+=0.025; rf.glowAnim+=0.06;
+
+  if(rf.state==='swimming'){
+    // プレイヤーが操作中は vx/vy を update() 側で加速済み→ここでフリクション＆移動
+    if(selectedFish==='rare' && touchTarget){
+      rf.vx=Math.max(-1.9,Math.min(1.9,rf.vx))*0.85;
+      rf.vy=Math.max(-1.9,Math.min(1.9,rf.vy))*0.85;
+      rf.x+=rf.vx; rf.y+=rf.vy;
+      rf.x=Math.max(20,Math.min(canvas.width-20,rf.x));
+      rf.y=Math.max(20,Math.min(canvas.height-20,rf.y));
+      rf.leavingTimer=0;
+    } else {
+      // 自律移動：スポーン時のvxで左右に泳ぐ
+      rf.x+=rf.vx;
+      rf.vy+=Math.sin(rf.wobble)*0.04; rf.vy*=0.96; rf.y+=rf.vy;
+      rf.y=Math.max(50,Math.min(canvas.height-70,rf.y));
+      rf.leavingTimer++;
+      if(rf.x<-100||rf.x>canvas.width+100){ rareFish=null; return; }
+      if(rf.leavingTimer>rf.maxStay){ rf.state='leaving'; rf.vx=rf.vx>0?rf.type.speed*2.5:-rf.type.speed*2.5; }
+    }
+    for(let i=foods.length-1;i>=0;i--){
+      const f=foods[i];
+      const dx=rf.x-f.x, dy=rf.y-f.y;
+      if(dx*dx+dy*dy<32*32){
+        foods.splice(i,1); spawnFood(); rf.foodGiven++;
+        rf.showHeart=true; rf.heartAnim=0;
+        for(let k=0;k<6;k++) rf.sparkles.push({
+          x:rf.x, y:rf.y, vx:(Math.random()-.5)*4, vy:(Math.random()-.5)*4-1.5,
+          life:1, color:rf.type.glowColor
+        });
+        const remain=rf.type.needFood-rf.foodGiven;
+        if(remain<=0){ rf.state='joining'; showMessage(rf.type.message); }
+        else{ showMessage('もう'+remain+'かい エサをあげよう！💕'); }
+        break;
+      }
+    }
+  }
+
+  if(rf.state==='leaving'){
+    rf.x+=rf.vx;
+    if(rf.x<-120||rf.x>canvas.width+120){ rareFish=null; return; }
+  }
+
+  if(rf.state==='joining'){
+    rf.x+=(fish.x-rf.x)*0.07; rf.y+=(fish.y-rf.y)*0.07;
+    for(let k=0;k<2;k++){
+      const a=Math.random()*Math.PI*2, dist=20+Math.random()*25;
+      rf.sparkles.push({ x:rf.x+Math.cos(a)*dist, y:rf.y+Math.sin(a)*dist,
+        vx:(Math.random()-.5)*2, vy:-1.5-Math.random(), life:1, color:rf.type.glowColor });
+    }
+    const dx=rf.x-fish.x, dy=rf.y-fish.y;
+    if(dx*dx+dy*dy<20*20){
+      if(selectedFish==='rare') selectedFish='main';
+      addCompanion(rf.type);
+      rareFish=null;
+      return;
+    }
+  }
+
+  rf.sparkles=rf.sparkles.filter(sp=>{ sp.x+=sp.vx; sp.y+=sp.vy; sp.life-=0.04; return sp.life>0; });
+  if(rf.showHeart){ rf.heartAnim+=0.055; if(rf.heartAnim>1.6) rf.showHeart=false; }
+}
+
+function updateCompanions(){
+  const maxV=1.9, friction=0.85;
+  companionFishes.forEach((c,i)=>{
+    c.tailAnim+=0.11; c.glowAnim+=0.04;
+    if(selectedFish===i && touchTarget){
+      c.vx=Math.max(-maxV,Math.min(maxV,c.vx))*friction;
+      c.vy=Math.max(-maxV,Math.min(maxV,c.vy))*friction;
+      c.x+=c.vx; c.y+=c.vy;
+      c.x=Math.max(16,Math.min(canvas.width-16,c.x));
+      c.y=Math.max(16,Math.min(canvas.height-16,c.y));
+    } else {
+      c.vx=0; c.vy=0;
+      c.offsetAngle+=0.013*(i%2===0?1:-1);
+      const tx=fish.x+Math.cos(c.offsetAngle)*c.offsetDist;
+      const ty=fish.y+Math.sin(c.offsetAngle)*(c.offsetDist*.5);
+      c.x+=(tx-c.x)*.07; c.y+=(ty-c.y)*.07;
+      c.facingRight=(tx>c.x);
+    }
+  });
+}
+
+// =====================
+//  描画メイン
+// =====================
+function draw(){
+  const W=canvas.width, H=canvas.height;
+  const now=Date.now();
+
+  // stateリセット
+  ctx.shadowBlur=0; ctx.globalAlpha=1; ctx.setLineDash([]);
+
+  // 背景
+  const bg=ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#001833'); bg.addColorStop(0.4,'#001228'); bg.addColorStop(1,'#000810');
+  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+
+  // 光の筋
+  for(let i=0;i<6;i++){
+    const x=(W*0.15*i)+20;
+    const lg=ctx.createLinearGradient(x,0,x+30,H*.7);
+    lg.addColorStop(0,'rgba(0,180,255,0.05)'); lg.addColorStop(1,'rgba(0,180,255,0)');
+    ctx.fillStyle=lg;
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x+40,0); ctx.lineTo(x+70,H*.7); ctx.lineTo(x+30,H*.7); ctx.fill();
+  }
+
+  drawSeafloor(W,H);
+
+  // あわ
+  ctx.shadowBlur=0;
+  bubbles.forEach(b=>{
+    ctx.globalAlpha=b.alpha; ctx.strokeStyle='rgba(100,220,255,1)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.stroke();
+  });
+  ctx.globalAlpha=1;
+
+  bgParticles.forEach(p=>drawBgFish(p));
+  foods.forEach(f=>drawFood(f));
+  treasures.forEach(t=>drawTreasure(t));
+
+  // タップ目標
+  if(touchTarget){
+    const t=now*.005;
+    ctx.save(); ctx.globalAlpha=0.6; ctx.strokeStyle='#0ff'; ctx.lineWidth=1.5;
+    ctx.setLineDash([4,4]); ctx.lineDashOffset=-t*8;
+    ctx.shadowBlur=8; ctx.shadowColor='#0ff';
+    ctx.beginPath(); ctx.arc(touchTarget.x,touchTarget.y,10,0,Math.PI*2); ctx.stroke();
+    ctx.setLineDash([]); ctx.restore();
+  }
+
+  // 仲間
+  companionFishes.forEach((c,i)=>drawCompanionFish(c, i===selectedFish));
+
+  // レアな生きもの
+  if(rareFish){
+    // スパークル
+    rareFish.sparkles.forEach(sp=>{
+      ctx.save(); ctx.globalAlpha=sp.life*.9;
+      ctx.fillStyle=sp.color; ctx.shadowBlur=10; ctx.shadowColor=sp.color;
+      ctx.beginPath(); ctx.arc(sp.x,sp.y,3*sp.life,0,Math.PI*2); ctx.fill();
+      ctx.restore();
+    });
+    drawRareFish(rareFish, selectedFish==='rare');
+  }
+
+  drawMainFish(selectedFish==='main');
+}
+
+// =====================
+//  海底
+// =====================
+function drawSeafloor(W,H){
+  ctx.save();
+  ctx.shadowBlur=0; ctx.globalAlpha=1;
+
+  ctx.fillStyle='#050f1e';
+  ctx.beginPath(); ctx.moveTo(0,H-35);
+  for(let x=0;x<=W;x+=50) ctx.quadraticCurveTo(x+25,H-20-Math.sin(x*.04)*18,x+50,H-35);
+  ctx.lineTo(W,H); ctx.lineTo(0,H); ctx.closePath(); ctx.fill();
+
+  const sg=ctx.createLinearGradient(0,H-18,0,H);
+  sg.addColorStop(0,'#0a1f35'); sg.addColorStop(1,'#071525');
+  ctx.fillStyle=sg; ctx.fillRect(0,H-18,W,18);
+
+  const t=Date.now()*.002;
+  for(let gx=45;gx<W;gx+=80){
+    ctx.strokeStyle='#0d5c2e'; ctx.lineWidth=3.5;
+    ctx.beginPath(); ctx.moveTo(gx,H-18);
+    for(let j=0;j<5;j++){
+      const sw=Math.sin(t+j+gx*.05)*8;
+      const hh=40+Math.sin(gx*.25)*20;
+      ctx.quadraticCurveTo(gx+sw+10,H-18-hh*(j+.5)/5,gx+sw,H-18-hh*(j+1)/5);
+    }
+    ctx.stroke();
+  }
+  const cols=['#e53935','#f06292','#ff7043'];
+  for(let cx=80;cx<W;cx+=130){
+    const col=cols[Math.floor(cx/50)%3];
+    ctx.strokeStyle=col; ctx.lineWidth=3;
+    const br=3+Math.floor(cx*.01)%2;
+    for(let b=0;b<br;b++){
+      const angle=-Math.PI/2+(b-(br-1)/2)*.5;
+      const len=18+Math.sin(cx+b)*8;
+      ctx.beginPath(); ctx.moveTo(cx,H-18); ctx.lineTo(cx+Math.cos(angle)*len,H-18+Math.sin(angle)*len); ctx.stroke();
+      ctx.fillStyle=col; ctx.beginPath(); ctx.arc(cx+Math.cos(angle)*len,H-18+Math.sin(angle)*len,3.5,0,Math.PI*2); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawBgFish(p){
+  ctx.save();
+  const dir=p.speed>0?1:-1;
+  ctx.fillStyle=p.color;
+  // 体
+  ctx.beginPath(); ctx.ellipse(p.x,p.y,p.size,p.size*.42,0,0,Math.PI*2); ctx.fill();
+  // 尾
+  ctx.beginPath();
+  ctx.moveTo(p.x-d(dir,p.size*.9),p.y);
+  ctx.lineTo(p.x-d(dir,p.size*1.5),p.y-p.size*.5);
+  ctx.lineTo(p.x-d(dir,p.size*1.5),p.y+p.size*.5);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function drawFood(f){
+  ctx.save();
+  const bobY=f.y+Math.sin(f.anim)*2.5;
+  if(f.type==='shrimp'){
+    ctx.fillStyle='#ef5350';
+    ctx.beginPath(); ctx.ellipse(f.x,bobY,f.r,f.r*.5,Math.PI/4,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#ef9a9a';
+    ctx.beginPath(); ctx.arc(f.x+f.r*.5,bobY-f.r*.3,f.r*.3,0,Math.PI*2); ctx.fill();
+  } else {
+    ctx.shadowBlur=8; ctx.shadowColor='#ffcc02';
+    const gg=ctx.createRadialGradient(f.x,bobY,1,f.x,bobY,f.r*.85);
+    gg.addColorStop(0,'#ffe082'); gg.addColorStop(1,'#ff8f00');
+    ctx.fillStyle=gg; ctx.beginPath(); ctx.arc(f.x,bobY,f.r*.85,0,Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawTreasure(t){
+  const locked=fish.sizeIndex<2;
+  const glow=(Math.sin(t.anim*2)+1)/2;
+  const bobY=t.y+Math.sin(t.anim)*4;
+  ctx.save(); ctx.translate(t.x,bobY);
+  if(locked){ ctx.globalAlpha=0.3; }
+  else{ ctx.shadowBlur=24+glow*20; ctx.shadowColor='#ffd740'; }
+  ctx.fillStyle='#5d4037';
+  ctx.beginPath(); ctx.rect(-t.r,-t.r*.6,t.r*2,t.r*1.3); ctx.fill();
+  ctx.fillStyle='#795548';
+  ctx.beginPath(); ctx.rect(-t.r,-t.r,t.r*2,t.r*.55); ctx.fill();
+  ctx.fillStyle='#ffd740';
+  ctx.beginPath(); ctx.arc(0,-t.r*.12,t.r*.28,0,Math.PI*2); ctx.fill();
+  if(!locked){
+    for(let i=-1;i<=1;i++){
+      ctx.shadowBlur=12; ctx.shadowColor='#ffd740';
+      ctx.beginPath(); ctx.arc(i*t.r*.6,-t.r*.85-Math.sin(t.anim+i)*5,5,0,Math.PI*2); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+// =====================
+//  メイン魚
+// =====================
+function drawMainFish(isSelected){
+  const size=SIZES[fish.sizeIndex];
+  const s=size.scale;
+  const tail=Math.sin(fish.tailAnim)*.4;
+  const now=Date.now();
+  const dir=fish.facingRight?1:-1;
+  const cx=fish.x, cy=fish.y;
+
+  // 選択リング
+  if(isSelected){
+    const ringColor=fish.sizeIndex===3?'#ffd700':'#0ff';
+    ctx.save(); ctx.strokeStyle=ringColor; ctx.lineWidth=2;
+    ctx.setLineDash([5,4]); ctx.lineDashOffset=-(now*.04);
+    ctx.shadowBlur=14; ctx.shadowColor=ringColor; ctx.globalAlpha=.7;
+    ctx.beginPath(); ctx.ellipse(cx,cy,30*s,18*s,0,0,Math.PI*2); ctx.stroke();
+    ctx.setLineDash([]); ctx.restore();
+  }
+
+  // さいきょう = 潜水艦
+  if(fish.sizeIndex===3){ drawSubmarine(cx,cy,s,dir,tail,now); return; }
+
+  ctx.save();
+
+  // エンジン噴射
+  const spd=Math.sqrt(fish.vx*fish.vx+fish.vy*fish.vy);
+  if(spd>0.5){
+    const ta=Math.min(spd/1.9,1)*0.6;
+    ctx.globalAlpha=ta;
+    ctx.fillStyle='rgba(0,200,255,1)';
+    ctx.beginPath();
+    ctx.moveTo(cx+d(dir,-18*s),cy-4*s);
+    ctx.lineTo(cx+d(dir,-38*s),cy);
+    ctx.lineTo(cx+d(dir,-18*s),cy+4*s);
+    ctx.closePath(); ctx.fill();
+    ctx.globalAlpha=1;
+  }
+
+  // 背びれ
+  ctx.fillStyle=size.finColor; ctx.globalAlpha=.9;
+  ctx.beginPath();
+  ctx.moveTo(cx+d(dir,2*s),cy-11*s);
+  ctx.lineTo(cx+d(dir,10*s),cy-22*s);
+  ctx.lineTo(cx+d(dir,-8*s),cy-20*s);
+  ctx.lineTo(cx+d(dir,-2*s),cy-11*s);
+  ctx.closePath(); ctx.fill(); ctx.globalAlpha=1;
+
+  // 尾びれ上
+  ctx.fillStyle=size.finColor;
+  ctx.beginPath();
+  ctx.moveTo(cx+d(dir,-16*s),cy);
+  ctx.lineTo(cx+d(dir,-28*s+tail*10*s),cy-14*s);
+  ctx.lineTo(cx+d(dir,-24*s+tail*5*s),cy-6*s);
+  ctx.closePath(); ctx.fill();
+  // 尾びれ下
+  ctx.beginPath();
+  ctx.moveTo(cx+d(dir,-16*s),cy);
+  ctx.lineTo(cx+d(dir,-28*s+tail*10*s),cy+14*s);
+  ctx.lineTo(cx+d(dir,-24*s+tail*5*s),cy+6*s);
+  ctx.closePath(); ctx.fill();
+
+  // 胸びれ
+  ctx.fillStyle=size.finColor; ctx.globalAlpha=.75;
+  ctx.beginPath(); ctx.ellipse(cx+d(dir,4*s),cy+9*s,8*s,3.5*s,dir>0?-0.3:0.3,0,Math.PI*2); ctx.fill();
+  ctx.globalAlpha=1;
+
+  // 体
+  const bg=ctx.createLinearGradient(cx,cy-11*s,cx,cy+11*s);
+  bg.addColorStop(0,lightenColor(size.color,60));
+  bg.addColorStop(0.35,size.color);
+  bg.addColorStop(0.7,darkenColor(size.color,30));
+  bg.addColorStop(1,darkenColor(size.color,50));
+  ctx.fillStyle=bg; ctx.shadowBlur=14; ctx.shadowColor=size.color;
+  ctx.beginPath(); ctx.ellipse(cx,cy,22*s,11.5*s,0,0,Math.PI*2); ctx.fill();
+  ctx.shadowBlur=0;
+
+  // 鱗ライン
+  ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=1.5*s;
+  ctx.beginPath(); ctx.moveTo(cx+d(dir,-10*s),cy-11*s); ctx.lineTo(cx+d(dir,-10*s),cy+11*s); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx+d(dir,4*s),cy-11*s); ctx.lineTo(cx+d(dir,4*s),cy+11*s); ctx.stroke();
+
+  // 目
+  ctx.fillStyle='rgba(0,0,0,0.5)';
+  ctx.beginPath(); ctx.ellipse(cx+d(dir,13*s),cy-3.5*s,6*s,4.5*s,0,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#111';
+  ctx.beginPath(); ctx.arc(cx+d(dir,13*s),cy-3.5*s,3.8*s,0,Math.PI*2); ctx.fill();
+  const eg=ctx.createRadialGradient(cx+d(dir,11.5*s),cy-4.5*s,0.5,cx+d(dir,13*s),cy-3.5*s,3.8*s);
+  eg.addColorStop(0,size.eyeColor); eg.addColorStop(.4,size.color); eg.addColorStop(1,'#000');
+  ctx.fillStyle=eg; ctx.beginPath(); ctx.arc(cx+d(dir,13*s),cy-3.5*s,3.8*s,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#fff'; ctx.globalAlpha=.8;
+  ctx.beginPath(); ctx.arc(cx+d(dir,11.5*s),cy-5*s,1.2*s,0,Math.PI*2); ctx.fill();
+  ctx.globalAlpha=1;
+
+  // 牙
+  ctx.fillStyle='rgba(255,255,255,0.7)';
+  ctx.beginPath();
+  ctx.moveTo(cx+d(dir,20*s),cy+1*s);
+  ctx.lineTo(cx+d(dir,22*s),cy+5*s);
+  ctx.lineTo(cx+d(dir,18*s),cy+3*s);
+  ctx.closePath(); ctx.fill();
+
+  ctx.restore();
+}
+
+// =====================
+//  ゴールド潜水艦
+// =====================
+function drawSubmarine(cx,cy,s,dir,tail,now){
+  ctx.save();
+  const pulse=(Math.sin(now*.004)+1)/2;
+
+  // スクリュー噴射
+  const spd=Math.sqrt(fish.vx*fish.vx+fish.vy*fish.vy);
+  if(spd>0.3){
+    const ta=Math.min(spd/1.9,1)*0.7;
+    ctx.globalAlpha=ta;
+    ctx.fillStyle='rgba(255,200,0,0.8)';
+    ctx.beginPath();
+    ctx.moveTo(cx+d(dir,-26*s),cy-5*s);
+    ctx.lineTo(cx+d(dir,-50*s),cy-10*s);
+    ctx.lineTo(cx+d(dir,-50*s),cy-2*s);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx+d(dir,-26*s),cy+5*s);
+    ctx.lineTo(cx+d(dir,-50*s),cy+10*s);
+    ctx.lineTo(cx+d(dir,-50*s),cy+2*s);
+    ctx.closePath(); ctx.fill();
+    ctx.globalAlpha=1;
+  }
+
+  // スクリュー
+  ctx.strokeStyle='#b8860b'; ctx.lineWidth=3*s;
+  for(let i=0;i<4;i++){
+    const a=(i/4)*Math.PI*2+now*.006;
+    ctx.beginPath();
+    ctx.moveTo(cx+d(dir,-24*s),cy);
+    ctx.lineTo(cx+d(dir,-24*s)+Math.cos(a)*8*s, cy+Math.sin(a)*8*s);
+    ctx.stroke();
+  }
+  ctx.fillStyle='#daa520';
+  ctx.beginPath(); ctx.arc(cx+d(dir,-24*s),cy,3*s,0,Math.PI*2); ctx.fill();
+
+  // 安定板（後ろ翼）
+  ctx.fillStyle='#b8860b';
+  ctx.beginPath();
+  ctx.moveTo(cx+d(dir,-20*s),cy-8*s);
+  ctx.lineTo(cx+d(dir,-10*s),cy-6*s);
+  ctx.lineTo(cx+d(dir,-10*s),cy-12*s);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cx+d(dir,-20*s),cy+8*s);
+  ctx.lineTo(cx+d(dir,-10*s),cy+6*s);
+  ctx.lineTo(cx+d(dir,-10*s),cy+12*s);
+  ctx.closePath(); ctx.fill();
+
+  // 本体
+  const subG=ctx.createLinearGradient(cx,cy-13*s,cx,cy+13*s);
+  subG.addColorStop(0,'#fffacd'); subG.addColorStop(0.2,'#ffd700');
+  subG.addColorStop(0.55,'#daa520'); subG.addColorStop(1,'#8b6914');
+  ctx.fillStyle=subG; ctx.shadowBlur=22+pulse*16; ctx.shadowColor='#ffd700';
+  ctx.beginPath(); ctx.ellipse(cx,cy,28*s,13*s,0,0,Math.PI*2); ctx.fill();
+  ctx.shadowBlur=0;
+
+  // セイル（司令塔）
+  const sailG=ctx.createLinearGradient(cx,cy-13*s,cx,cy-26*s);
+  sailG.addColorStop(0,'#ffd700'); sailG.addColorStop(1,'#daa520');
+  ctx.fillStyle=sailG;
+  ctx.beginPath();
+  ctx.moveTo(cx+d(dir,-4*s),cy-13*s);
+  ctx.lineTo(cx+d(dir,-4*s),cy-25*s);
+  ctx.lineTo(cx+d(dir,8*s),cy-25*s);
+  ctx.lineTo(cx+d(dir,10*s),cy-13*s);
+  ctx.closePath(); ctx.fill();
+
+  // アンテナ
+  ctx.strokeStyle='#fffacd'; ctx.lineWidth=1.5*s;
+  ctx.beginPath();
+  ctx.moveTo(cx+d(dir,4*s),cy-25*s);
+  ctx.lineTo(cx+d(dir,4*s),cy-32*s);
+  ctx.stroke();
+  ctx.fillStyle='#fff'; ctx.shadowBlur=8; ctx.shadowColor='#0ff';
+  ctx.beginPath(); ctx.arc(cx+d(dir,4*s),cy-32*s,2*s,0,Math.PI*2); ctx.fill();
+  ctx.shadowBlur=0;
+
+  // 魚雷発射口
+  ctx.fillStyle='#8b6914';
+  ctx.beginPath(); ctx.ellipse(cx+d(dir,26*s),cy-5*s,3*s,2*s,0,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx+d(dir,26*s),cy+5*s,3*s,2*s,0,0,Math.PI*2); ctx.fill();
+
+  // 舷窓
+  [[-8,0],[4,0],[16,0]].forEach(([wx,wy],wi)=>{
+    const wColor=['#00ffff','#00e5ff','#80deea'][wi];
+    ctx.fillStyle='#8b6914';
+    ctx.beginPath(); ctx.arc(cx+d(dir,wx*s),cy+wy*s,5*s,0,Math.PI*2); ctx.fill();
+    const wg=ctx.createRadialGradient(
+      cx+d(dir,wx*s)-1.5*s,cy-1.5*s,0.3,
+      cx+d(dir,wx*s),cy,4*s
+    );
+    wg.addColorStop(0,'rgba(200,255,255,0.9)');
+    wg.addColorStop(.5,wColor);
+    wg.addColorStop(1,'rgba(0,80,120,0.8)');
+    ctx.fillStyle=wg;
+    ctx.shadowBlur=8+pulse*6; ctx.shadowColor='#0ff';
+    ctx.beginPath(); ctx.arc(cx+d(dir,wx*s),cy,4*s,0,Math.PI*2); ctx.fill();
+    ctx.shadowBlur=0;
+    ctx.fillStyle='rgba(255,255,255,0.6)';
+    ctx.beginPath(); ctx.arc(cx+d(dir,wx*s)-1.5*s,cy-1.5*s,1.5*s,0,Math.PI*2); ctx.fill();
+  });
+
+  // 先端マーク
+  ctx.fillStyle='#ff1744';
+  ctx.beginPath();
+  ctx.moveTo(cx+d(dir,24*s),cy-3*s);
+  ctx.lineTo(cx+d(dir,28*s),cy);
+  ctx.lineTo(cx+d(dir,24*s),cy+3*s);
+  ctx.closePath(); ctx.fill();
+
+  ctx.restore();
+}
+
+// =====================
+//  レアな生きもの描画（ctx.scale廃止、dir方式）
+// =====================
+function drawRareFish(rf, isSelected){
+  const type=rf.type;
+  const s=type.size;
+  const glow=(Math.sin(rf.glowAnim)+1)/2;
+  const dir=(rf.vx>=0||(rf.state==='joining'&&rf.x<fish.x))?1:-1;
+  const tail=Math.sin(rf.tailAnim)*.4;
+  const now=Date.now();
+  const cx=rf.x, cy=rf.y;
+
+  // 選択リング
+  if(isSelected){
+    ctx.save(); ctx.strokeStyle='#0ff'; ctx.lineWidth=2.5;
+    ctx.setLineDash([6,4]); ctx.lineDashOffset=-(now*.04);
+    ctx.shadowBlur=14; ctx.shadowColor=type.glowColor; ctx.globalAlpha=.85;
+    ctx.beginPath(); ctx.ellipse(cx,cy,28*s,18*s,0,0,Math.PI*2); ctx.stroke();
+    ctx.setLineDash([]); ctx.restore();
+  }
+
+  ctx.save();
+  ctx.shadowBlur=Math.min(20+glow*16, 36); ctx.shadowColor=type.glowColor;
+
+  const style=type.drawStyle;
+
+  if(style==='shark'){
+    // 背びれ
+    ctx.fillStyle='#546e7a'; ctx.globalAlpha=.95;
+    ctx.beginPath();
+    ctx.moveTo(cx+d(dir,2*s),cy-12*s);
+    ctx.lineTo(cx+d(dir,8*s),cy-28*s);
+    ctx.lineTo(cx+d(dir,-5*s),cy-14*s);
+    ctx.closePath(); ctx.fill(); ctx.globalAlpha=1;
+    // 尾
+    ctx.fillStyle='#455a64';
+    ctx.beginPath();
+    ctx.moveTo(cx+d(dir,-18*s),cy);
+    ctx.lineTo(cx+d(dir,-30*s+tail*12*s),cy-15*s);
+    ctx.lineTo(cx+d(dir,-26*s),cy);
+    ctx.lineTo(cx+d(dir,-30*s+tail*12*s),cy+15*s);
+    ctx.closePath(); ctx.fill();
+    // 体
+    const sg=ctx.createLinearGradient(cx,cy-12*s,cx,cy+12*s);
+    sg.addColorStop(0,'#78909c'); sg.addColorStop(.5,'#546e7a'); sg.addColorStop(1,'#eceff1');
+    ctx.fillStyle=sg;
+    ctx.beginPath(); ctx.ellipse(cx,cy,22*s,10*s,0,0,Math.PI*2); ctx.fill();
+    // お腹
+    ctx.fillStyle='rgba(236,239,241,0.7)';
+    ctx.beginPath(); ctx.ellipse(cx,cy+3*s,14*s,5.5*s,0,0,Math.PI*2); ctx.fill();
+    // えら
+    ctx.shadowBlur=0; ctx.strokeStyle='rgba(0,0,0,0.3)'; ctx.lineWidth=1.5*s;
+    for(let g=0;g<3;g++){
+      ctx.beginPath(); ctx.arc(cx+d(dir,-4*s+g*5*s),cy+1*s,4*s,.4,Math.PI-.4); ctx.stroke();
+    }
+    // 目
+    ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(cx+d(dir,13*s),cy-3*s,3.5*s,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=type.eyeColor; ctx.globalAlpha=.9;
+    ctx.beginPath(); ctx.arc(cx+d(dir,14.5*s),cy-4.5*s,1.5*s,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1;
+    // 歯
+    ctx.fillStyle='rgba(255,255,255,0.85)';
+    for(let t2=0;t2<4;t2++){
+      ctx.beginPath();
+      ctx.moveTo(cx+d(dir,16*s+t2*2.5*s),cy+2*s);
+      ctx.lineTo(cx+d(dir,17*s+t2*2.5*s),cy+6*s);
+      ctx.lineTo(cx+d(dir,15*s+t2*2.5*s),cy+4*s);
+      ctx.closePath(); ctx.fill();
+    }
+
+  } else if(style==='goblin'){
+    // ミツクリザメ
+    // 尾
+    ctx.fillStyle=type.finColor;
+    ctx.beginPath();
+    ctx.moveTo(cx+d(dir,-18*s),cy);
+    ctx.lineTo(cx+d(dir,-30*s+tail*10*s),cy-13*s);
+    ctx.lineTo(cx+d(dir,-26*s),cy);
+    ctx.lineTo(cx+d(dir,-30*s+tail*10*s),cy+13*s);
+    ctx.closePath(); ctx.fill();
+    // 体
+    const gg=ctx.createLinearGradient(cx,cy-11*s,cx,cy+11*s);
+    gg.addColorStop(0,'#ef9a9a'); gg.addColorStop(.5,type.bodyColor); gg.addColorStop(1,'#6d0000');
+    ctx.fillStyle=gg;
+    ctx.beginPath(); ctx.ellipse(cx,cy,22*s,10*s,0,0,Math.PI*2); ctx.fill();
+    // お腹
+    ctx.fillStyle='rgba(255,205,210,0.5)';
+    ctx.beginPath(); ctx.ellipse(cx+d(dir,2*s),cy+3*s,14*s,5*s,0,0,Math.PI*2); ctx.fill();
+    // 背びれ
+    ctx.fillStyle=type.finColor; ctx.globalAlpha=.9;
+    ctx.beginPath();
+    ctx.moveTo(cx+d(dir,2*s),cy-10*s);
+    ctx.lineTo(cx+d(dir,7*s),cy-22*s);
+    ctx.lineTo(cx+d(dir,-4*s),cy-13*s);
+    ctx.closePath(); ctx.fill(); ctx.globalAlpha=1;
+    // ！名物！長く飛び出した吻（ロストラム）
+    ctx.fillStyle='#b71c1c'; ctx.shadowBlur=0;
+    ctx.beginPath();
+    ctx.moveTo(cx+d(dir,18*s),cy-3*s);
+    ctx.lineTo(cx+d(dir,38*s),cy-1*s);  // 長い吻
+    ctx.lineTo(cx+d(dir,18*s),cy+3*s);
+    ctx.closePath(); ctx.fill();
+    // 吻の先端
+    ctx.fillStyle='#ff1744';
+    ctx.beginPath(); ctx.arc(cx+d(dir,38*s),cy,2*s,0,Math.PI*2); ctx.fill();
+    // えら
+    ctx.shadowBlur=0; ctx.strokeStyle='rgba(80,0,0,0.4)'; ctx.lineWidth=1.5*s;
+    for(let g=0;g<3;g++){
+      ctx.beginPath(); ctx.arc(cx+d(dir,-4*s+g*5*s),cy+1*s,4*s,.4,Math.PI-.4); ctx.stroke();
+    }
+    // 目（小さい）
+    ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(cx+d(dir,10*s),cy-2*s,2.5*s,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=type.eyeColor; ctx.globalAlpha=.8;
+    ctx.beginPath(); ctx.arc(cx+d(dir,11*s),cy-3*s,1*s,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1;
+    // ギザギザ歯
+    ctx.fillStyle='rgba(255,255,255,0.9)';
+    for(let t2=0;t2<5;t2++){
+      ctx.beginPath();
+      ctx.moveTo(cx+d(dir,13*s+t2*1.8*s),cy+2*s);
+      ctx.lineTo(cx+d(dir,13.9*s+t2*1.8*s),cy+6*s);
+      ctx.lineTo(cx+d(dir,12.1*s+t2*1.8*s),cy+6*s);
+      ctx.closePath(); ctx.fill();
+    }
+
+  } else if(style==='whale'){
+    // 尾
+    ctx.fillStyle='#0d47a1';
+    ctx.beginPath();
+    ctx.moveTo(cx+d(dir,-24*s),cy);
+    ctx.lineTo(cx+d(dir,-36*s+tail*12*s),cy-18*s);
+    ctx.lineTo(cx+d(dir,-28*s),cy);
+    ctx.lineTo(cx+d(dir,-36*s+tail*12*s),cy+18*s);
+    ctx.closePath(); ctx.fill();
+    // 体
+    const wg=ctx.createRadialGradient(cx,cy-5*s,2*s,cx,cy,28*s);
+    wg.addColorStop(0,'#42a5f5'); wg.addColorStop(.5,'#1565c0'); wg.addColorStop(1,'#0d47a1');
+    ctx.fillStyle=wg;
+    ctx.beginPath(); ctx.ellipse(cx,cy,28*s,14*s,0,0,Math.PI*2); ctx.fill();
+    // お腹
+    ctx.fillStyle='rgba(225,245,254,0.55)';
+    ctx.beginPath(); ctx.ellipse(cx,cy+5*s,18*s,7*s,0,0,Math.PI*2); ctx.fill();
+    // 上ひれ
+    ctx.fillStyle='#0d47a1'; ctx.globalAlpha=.9;
+    ctx.beginPath();
+    ctx.moveTo(cx+d(dir,4*s),cy-14*s);
+    ctx.quadraticCurveTo(cx+d(dir,12*s),cy-28*s,cx+d(dir,-2*s),cy-22*s);
+    ctx.closePath(); ctx.fill(); ctx.globalAlpha=1;
+    // ブロウホール
+    ctx.shadowBlur=0; ctx.fillStyle='rgba(0,0,0,0.5)';
+    ctx.beginPath(); ctx.ellipse(cx+d(dir,8*s),cy-13*s,2.5*s,1.5*s,0,0,Math.PI*2); ctx.fill();
+    // 目
+    ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(cx+d(dir,20*s),cy-4*s,4*s,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=type.eyeColor; ctx.globalAlpha=.7;
+    ctx.beginPath(); ctx.arc(cx+d(dir,21.5*s),cy-5.5*s,1.5*s,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1;
+    // ニコ口
+    ctx.strokeStyle='rgba(0,0,0,0.4)'; ctx.lineWidth=2*s;
+    ctx.beginPath(); ctx.arc(cx+d(dir,22*s),cy+2*s,5*s,.2,Math.PI*.8); ctx.stroke();
+
+  } else if(style==='manta'){
+    // 左翼
+    ctx.fillStyle=type.bodyColor;
+    ctx.beginPath();
+    ctx.moveTo(cx,cy);
+    ctx.bezierCurveTo(cx+d(dir,12*s),cy-16*s,cx+d(dir,30*s),cy-20*s,cx+d(dir,28*s),cy-8*s);
+    ctx.bezierCurveTo(cx+d(dir,26*s),cy,cx+d(dir,16*s),cy+3*s,cx,cy);
+    ctx.closePath(); ctx.fill();
+    // 右翼
+    ctx.beginPath();
+    ctx.moveTo(cx,cy);
+    ctx.bezierCurveTo(cx-d(dir,12*s),cy-16*s,cx-d(dir,30*s),cy-20*s,cx-d(dir,28*s),cy-8*s);
+    ctx.bezierCurveTo(cx-d(dir,26*s),cy,cx-d(dir,16*s),cy+3*s,cx,cy);
+    ctx.closePath(); ctx.fill();
+    // お腹
+    ctx.fillStyle='rgba(255,255,255,0.15)';
+    ctx.beginPath(); ctx.ellipse(cx,cy,14*s,8*s,0,0,Math.PI*2); ctx.fill();
+    // 尾
+    ctx.shadowBlur=0; ctx.strokeStyle=type.finColor; ctx.lineWidth=2.5*s;
+    ctx.beginPath(); ctx.moveTo(cx,cy+2*s); ctx.lineTo(cx+d(dir,-22*s+tail*8*s),cy+12*s); ctx.stroke();
+    // 目
+    ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(cx+d(dir,14*s),cy-5*s,2.5*s,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=type.eyeColor; ctx.globalAlpha=.8;
+    ctx.beginPath(); ctx.arc(cx+d(dir,15*s),cy-6*s,1*s,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1;
+
+  } else if(style==='clown'){
+    // 尾
+    ctx.fillStyle=type.finColor;
+    ctx.beginPath();
+    ctx.moveTo(cx+d(dir,-14*s),cy);
+    ctx.lineTo(cx+d(dir,-24*s+tail*10*s),cy-12*s);
+    ctx.lineTo(cx+d(dir,-20*s),cy);
+    ctx.lineTo(cx+d(dir,-24*s+tail*10*s),cy+12*s);
+    ctx.closePath(); ctx.fill();
+    // 体
+    const cg=ctx.createLinearGradient(cx,cy-10*s,cx,cy+10*s);
+    cg.addColorStop(0,'#ff7043'); cg.addColorStop(.5,type.bodyColor); cg.addColorStop(1,'#bf360c');
+    ctx.fillStyle=cg;
+    ctx.beginPath(); ctx.ellipse(cx,cy,18*s,10*s,0,0,Math.PI*2); ctx.fill();
+    // 白しま（3本）
+    ctx.fillStyle='rgba(255,255,255,0.85)';
+    for(let ci=0;ci<3;ci++){
+      ctx.beginPath(); ctx.ellipse(cx+d(dir,-6*s+ci*6*s),cy,2.5*s,10*s,0,0,Math.PI*2); ctx.fill();
+    }
+    // 上ひれ
+    ctx.fillStyle=type.finColor; ctx.globalAlpha=.85;
+    ctx.beginPath();
+    ctx.moveTo(cx,cy-10*s);
+    ctx.lineTo(cx+d(dir,6*s),cy-20*s);
+    ctx.lineTo(cx+d(dir,-4*s),cy-14*s);
+    ctx.closePath(); ctx.fill(); ctx.globalAlpha=1;
+    // 目
+    ctx.shadowBlur=0;
+    ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(cx+d(dir,12*s),cy-3*s,3*s,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=type.eyeColor; ctx.globalAlpha=.8;
+    ctx.beginPath(); ctx.arc(cx+d(dir,13*s),cy-4*s,1.2*s,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1;
+
+  } else if(style==='angler'){
+    // アゴ（大きい）
+    ctx.fillStyle='#4a148c';
+    ctx.beginPath(); ctx.ellipse(cx+d(dir,4*s),cy+5*s,18*s,8*s,0,0,Math.PI*2); ctx.fill();
+    // 体
+    const ag=ctx.createRadialGradient(cx,cy,2,cx,cy,16*s);
+    ag.addColorStop(0,'#7b1fa2'); ag.addColorStop(1,'#1a0033');
+    ctx.fillStyle=ag;
+    ctx.beginPath(); ctx.ellipse(cx,cy,16*s,12*s,0,0,Math.PI*2); ctx.fill();
+    // 歯
+    ctx.fillStyle='rgba(255,255,255,0.7)';
+    for(let t2=-2;t2<=2;t2++){
+      ctx.beginPath();
+      ctx.moveTo(cx+d(dir,8*s+t2*4*s),cy+5*s);
+      ctx.lineTo(cx+d(dir,9*s+t2*4*s),cy+12*s);
+      ctx.lineTo(cx+d(dir,7*s+t2*4*s),cy+10*s);
+      ctx.closePath(); ctx.fill();
+    }
+    // 提灯
+    const lx=cx+d(dir,14*s+Math.sin(rf.glowAnim*2)*3);
+    const ly=cy-18*s+Math.cos(rf.glowAnim)*4;
+    ctx.shadowBlur=0; ctx.strokeStyle='#ce93d8'; ctx.lineWidth=1.5*s;
+    ctx.beginPath(); ctx.moveTo(cx+d(dir,8*s),cy-12*s); ctx.quadraticCurveTo(cx+d(dir,14*s),cy-20*s,lx,ly); ctx.stroke();
+    ctx.fillStyle='#ffe082';
+    ctx.shadowBlur=16+glow*12; ctx.shadowColor='#ffe082';
+    ctx.beginPath(); ctx.arc(lx,ly,4*s,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0;
+    // 目
+    ctx.fillStyle=type.eyeColor; ctx.beginPath(); ctx.arc(cx+d(dir,10*s),cy-3*s,4*s,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(cx+d(dir,10*s),cy-3*s,2.5*s,0,Math.PI*2); ctx.fill();
+
+  } else if(style==='turtle'){
+    // 前ひれ
+    ctx.fillStyle='#1b5e20';
+    ctx.beginPath(); ctx.ellipse(cx+d(dir,8*s),cy+10*s,12*s,4.5*s,.4,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx+d(dir,8*s),cy-10*s,12*s,4.5*s,-.4,0,Math.PI*2); ctx.fill();
+    // 後ろひれ
+    ctx.beginPath(); ctx.ellipse(cx+d(dir,-12*s),cy+7*s,7*s,3*s,.5,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx+d(dir,-12*s),cy-7*s,7*s,3*s,-.5,0,Math.PI*2); ctx.fill();
+    // 甲羅
+    const tg=ctx.createRadialGradient(cx,cy-2*s,2*s,cx,cy,16*s);
+    tg.addColorStop(0,'#388e3c'); tg.addColorStop(.5,'#2e7d32'); tg.addColorStop(1,'#1b5e20');
+    ctx.fillStyle=tg;
+    ctx.beginPath(); ctx.ellipse(cx,cy,16*s,12*s,0,0,Math.PI*2); ctx.fill();
+    // 甲羅模様
+    ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.2)'; ctx.lineWidth=1.5*s;
+    ctx.beginPath(); ctx.ellipse(cx,cy,10*s,7*s,0,0,Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx-16*s,cy); ctx.lineTo(cx+16*s,cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx,cy-12*s); ctx.lineTo(cx,cy+12*s); ctx.stroke();
+    // 頭
+    ctx.fillStyle='#4caf50';
+    ctx.beginPath(); ctx.ellipse(cx+d(dir,18*s),cy,7*s,5*s,0,0,Math.PI*2); ctx.fill();
+    // 目
+    ctx.fillStyle='#1b5e20'; ctx.beginPath(); ctx.arc(cx+d(dir,21*s),cy-2*s,2.5*s,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=type.eyeColor; ctx.beginPath(); ctx.arc(cx+d(dir,21*s),cy-2*s,1.2*s,0,Math.PI*2); ctx.fill();
+    // 尾
+    ctx.strokeStyle='#1b5e20'; ctx.lineWidth=3*s;
+    ctx.beginPath(); ctx.moveTo(cx+d(dir,-16*s),cy); ctx.lineTo(cx+d(dir,-22*s+tail*5*s),cy); ctx.stroke();
+
+  } else if(style==='octopus'){
+    // タコ：ふわふわ足8本＋丸い頭
+    const legCount=8;
+    ctx.strokeStyle=type.bodyColor; ctx.lineWidth=3.5*s;
+    for(let li=0;li<legCount;li++){
+      const angle=(li/(legCount))*Math.PI + Math.PI*.1;
+      const wag=Math.sin(rf.tailAnim+li*.8)*.3;
+      const lx1=cx+Math.cos(angle+wag)*12*s;
+      const ly1=cy+Math.sin(angle+wag)*10*s+5*s;
+      const lx2=cx+Math.cos(angle+wag+.4)*24*s;
+      const ly2=cy+Math.sin(angle+wag+.4)*22*s+10*s;
+      ctx.beginPath(); ctx.moveTo(lx1,ly1); ctx.quadraticCurveTo(lx2,ly2+5*s,lx2+Math.cos(angle)*3*s,ly2+10*s); ctx.stroke();
+      // 吸盤
+      ctx.fillStyle='rgba(255,180,200,0.7)';
+      ctx.beginPath(); ctx.arc(lx2,ly2+6*s,2*s,0,Math.PI*2); ctx.fill();
+    }
+    // 頭（マント）
+    const og=ctx.createRadialGradient(cx,cy-4*s,2*s,cx,cy,18*s);
+    og.addColorStop(0,'#e91e8c'); og.addColorStop(1,type.bodyColor);
+    ctx.fillStyle=og;
+    ctx.beginPath(); ctx.ellipse(cx,cy-2*s,16*s,14*s,0,0,Math.PI*2); ctx.fill();
+    // 斑点
+    ctx.fillStyle='rgba(255,255,255,0.25)';
+    [[-5,-5],[4,-8],[-8,1],[6,3]].forEach(([ox,oy])=>{
+      ctx.beginPath(); ctx.arc(cx+ox*s,cy+oy*s,2.5*s,0,Math.PI*2); ctx.fill();
+    });
+    // 目
+    ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(cx+d(dir,8*s),cy-5*s,4*s,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=type.eyeColor; ctx.globalAlpha=.7;
+    ctx.beginPath(); ctx.arc(cx+d(dir,9.5*s),cy-6.5*s,1.8*s,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1;
+
+  } else if(style==='squid'){
+    // イカ：流線型の体＋長い触手2本＋短い腕8本
+    // 体（菱形気味）
+    const sg2=ctx.createLinearGradient(cx,cy-14*s,cx,cy+14*s);
+    sg2.addColorStop(0,'#ffffff'); sg2.addColorStop(.5,type.bodyColor); sg2.addColorStop(1,'#9fa8da');
+    ctx.fillStyle=sg2;
+    ctx.beginPath();
+    ctx.moveTo(cx+d(dir,22*s),cy);
+    ctx.quadraticCurveTo(cx+d(dir,14*s),cy-14*s,cx,cy-12*s);
+    ctx.quadraticCurveTo(cx+d(dir,-16*s),cy-10*s,cx+d(dir,-14*s),cy);
+    ctx.quadraticCurveTo(cx+d(dir,-16*s),cy+10*s,cx,cy+12*s);
+    ctx.quadraticCurveTo(cx+d(dir,14*s),cy+14*s,cx+d(dir,22*s),cy);
+    ctx.fill();
+    // ひれ（耳）
+    ctx.fillStyle='rgba(180,190,255,0.65)';
+    ctx.beginPath(); ctx.ellipse(cx+d(dir,-10*s),cy-14*s,9*s,4*s,-.5,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx+d(dir,-10*s),cy+14*s,9*s,4*s,.5,0,Math.PI*2); ctx.fill();
+    // 短い腕
+    ctx.strokeStyle='rgba(180,190,255,0.8)'; ctx.lineWidth=2*s;
+    for(let ai=0;ai<8;ai++){
+      const ay=(ai-3.5)*3.5*s;
+      const wag=Math.sin(rf.tailAnim+ai*.6)*.2;
+      ctx.beginPath(); ctx.moveTo(cx+d(dir,-14*s),cy+ay); ctx.lineTo(cx+d(dir,-28*s+wag*8*s),cy+ay*1.4); ctx.stroke();
+    }
+    // 長い触手2本
+    ctx.strokeStyle=type.bodyColor; ctx.lineWidth=2.5*s;
+    for(let ti=0;ti<2;ti++){
+      const ay=(ti===0?-2:2)*s;
+      const wag=Math.sin(rf.tailAnim+ti*1.5)*.35;
+      ctx.beginPath(); ctx.moveTo(cx+d(dir,-14*s),cy+ay); ctx.lineTo(cx+d(dir,-42*s+wag*12*s),cy+ay*2); ctx.stroke();
+    }
+    // 目
+    ctx.fillStyle='rgba(26,35,126,0.85)'; ctx.beginPath(); ctx.arc(cx+d(dir,14*s),cy-4*s,4*s,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(26,35,126,0.85)'; ctx.beginPath(); ctx.arc(cx+d(dir,14*s),cy+4*s,4*s,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#fff'; ctx.globalAlpha=.5;
+    ctx.beginPath(); ctx.arc(cx+d(dir,15.5*s),cy-5.5*s,1.5*s,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1;
+
+  } else if(style==='jellyfish'){
+    // クラゲ：半円の傘＋ゆらゆら触手
+    const jg=ctx.createRadialGradient(cx,cy,2*s,cx,cy+2*s,18*s);
+    jg.addColorStop(0,'rgba(240,200,255,0.9)'); jg.addColorStop(.7,type.bodyColor); jg.addColorStop(1,'rgba(120,0,180,0.5)');
+    ctx.fillStyle=jg;
+    // 傘（上半分）
+    ctx.beginPath(); ctx.ellipse(cx,cy,18*s,14*s,0,0,Math.PI*2); ctx.fill();
+    // 内側の光
+    ctx.fillStyle='rgba(255,255,255,0.25)';
+    ctx.beginPath(); ctx.ellipse(cx,cy-2*s,10*s,7*s,0,0,Math.PI*2); ctx.fill();
+    // 触手（ゆらゆら）
+    const tentColors=['rgba(220,150,255,0.8)','rgba(180,100,230,0.7)','rgba(255,180,255,0.9)'];
+    for(let ti=0;ti<7;ti++){
+      const tx=cx+(ti-3)*5*s;
+      const wag=Math.sin(rf.tailAnim*0.8+ti*.9)*8*s;
+      const len=(18+ti%3*6)*s;
+      ctx.strokeStyle=tentColors[ti%3]; ctx.lineWidth=2*s;
+      ctx.beginPath(); ctx.moveTo(tx,cy+12*s);
+      ctx.quadraticCurveTo(tx+wag,cy+12*s+len*.5,tx+wag*.7,cy+12*s+len);
+      ctx.stroke();
+    }
+
+  } else if(style==='hammer'){
+    // シュモクザメ：T字の頭＋サメ体
+    // 背びれ（大）
+    ctx.fillStyle='#455a64'; ctx.globalAlpha=.95;
+    ctx.beginPath();
+    ctx.moveTo(cx+d(dir,2*s),cy-12*s); ctx.lineTo(cx+d(dir,10*s),cy-32*s); ctx.lineTo(cx+d(dir,-6*s),cy-16*s);
+    ctx.closePath(); ctx.fill(); ctx.globalAlpha=1;
+    // 尾
+    ctx.fillStyle='#37474f';
+    ctx.beginPath();
+    ctx.moveTo(cx+d(dir,-22*s),cy); ctx.lineTo(cx+d(dir,-36*s+tail*14*s),cy-18*s);
+    ctx.lineTo(cx+d(dir,-28*s),cy); ctx.lineTo(cx+d(dir,-36*s+tail*14*s),cy+18*s);
+    ctx.closePath(); ctx.fill();
+    // 体
+    const hg=ctx.createLinearGradient(cx,cy-12*s,cx,cy+12*s);
+    hg.addColorStop(0,'#78909c'); hg.addColorStop(.5,type.bodyColor); hg.addColorStop(1,'#eceff1');
+    ctx.fillStyle=hg;
+    ctx.beginPath(); ctx.ellipse(cx,cy,24*s,11*s,0,0,Math.PI*2); ctx.fill();
+    // お腹
+    ctx.fillStyle='rgba(236,239,241,0.6)';
+    ctx.beginPath(); ctx.ellipse(cx,cy+3*s,16*s,5.5*s,0,0,Math.PI*2); ctx.fill();
+    // ハンマー頭（T字）
+    ctx.shadowBlur=0;
+    ctx.fillStyle='#546e7a';
+    ctx.beginPath(); ctx.rect(cx+d(dir,16*s)-2*s,cy-10*s,4*s,20*s); ctx.fill(); // 首
+    ctx.fillStyle='#607d8b';
+    ctx.beginPath(); ctx.ellipse(cx+d(dir,22*s),cy,10*s,5*s,0,0,Math.PI*2); ctx.fill(); // 横棒
+    // 両端に目
+    ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(cx+d(dir,28*s),cy,2.5*s,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(cx+d(dir,16*s),cy,2.5*s,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#fff'; ctx.globalAlpha=.6;
+    ctx.beginPath(); ctx.arc(cx+d(dir,29.5*s),cy-1.5*s,1*s,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1;
+
+  } else if(style==='seahorse'){
+    // タツノオトシゴ：縦向き・丸めた尻尾
+    ctx.shadowBlur=0;
+    // しっぽ（くるん）
+    ctx.strokeStyle=type.finColor; ctx.lineWidth=4*s;
+    ctx.beginPath();
+    ctx.moveTo(cx,cy+14*s);
+    ctx.quadraticCurveTo(cx+d(dir,12*s),cy+22*s,cx+d(dir,8*s),cy+30*s);
+    ctx.quadraticCurveTo(cx+d(dir,2*s),cy+36*s,cx+d(dir,-4*s),cy+32*s);
+    ctx.stroke();
+    // 体（コマ切れ環状）
+    const shg=ctx.createLinearGradient(cx,cy-14*s,cx,cy+14*s);
+    shg.addColorStop(0,lightenColor(type.bodyColor,40)); shg.addColorStop(1,type.bodyColor);
+    ctx.fillStyle=shg;
+    ctx.beginPath(); ctx.ellipse(cx,cy,8*s,14*s,0,0,Math.PI*2); ctx.fill();
+    // 体の環状線
+    ctx.strokeStyle='rgba(0,0,0,0.2)'; ctx.lineWidth=1.5*s;
+    for(let ri=-2;ri<=2;ri++){
+      ctx.beginPath(); ctx.ellipse(cx,cy+ri*5*s,8*s,3*s,0,0,Math.PI*2); ctx.stroke();
+    }
+    // 背びれ（小さく揺れる）
+    ctx.fillStyle='rgba(255,200,100,0.7)';
+    ctx.beginPath();
+    ctx.moveTo(cx+d(dir,8*s),cy-4*s);
+    ctx.quadraticCurveTo(cx+d(dir,14*s)+Math.sin(rf.tailAnim)*4*s,cy-10*s,cx+d(dir,8*s),cy-18*s);
+    ctx.quadraticCurveTo(cx+d(dir,6*s),cy-14*s,cx+d(dir,8*s),cy-4*s);
+    ctx.closePath(); ctx.fill();
+    // 頭
+    ctx.fillStyle=type.bodyColor;
+    ctx.beginPath(); ctx.ellipse(cx+d(dir,2*s),cy-14*s,8*s,7*s,-.3,0,Math.PI*2); ctx.fill();
+    // 吻（口先）
+    ctx.strokeStyle=darkenColor(type.bodyColor,30); ctx.lineWidth=3*s;
+    ctx.beginPath(); ctx.moveTo(cx+d(dir,8*s),cy-16*s); ctx.lineTo(cx+d(dir,18*s),cy-18*s); ctx.stroke();
+    // 目
+    ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(cx+d(dir,6*s),cy-17*s,2.5*s,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=type.eyeColor; ctx.globalAlpha=.8;
+    ctx.beginPath(); ctx.arc(cx+d(dir,7*s),cy-18*s,1*s,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1;
+
+  } else if(style==='whale2'){
+    // ジンベイザメ：巨大・斑点模様
+    // 尾
+    ctx.fillStyle='#0a3a6e';
+    ctx.beginPath();
+    ctx.moveTo(cx+d(dir,-28*s),cy);
+    ctx.lineTo(cx+d(dir,-42*s+tail*14*s),cy-22*s);
+    ctx.lineTo(cx+d(dir,-32*s),cy);
+    ctx.lineTo(cx+d(dir,-42*s+tail*14*s),cy+22*s);
+    ctx.closePath(); ctx.fill();
+    // 体
+    const w2g=ctx.createLinearGradient(cx,cy-16*s,cx,cy+16*s);
+    w2g.addColorStop(0,'#1e88e5'); w2g.addColorStop(.5,type.bodyColor); w2g.addColorStop(1,'#0a3a6e');
+    ctx.fillStyle=w2g;
+    ctx.beginPath(); ctx.ellipse(cx,cy,32*s,16*s,0,0,Math.PI*2); ctx.fill();
+    // お腹（白）
+    ctx.fillStyle='rgba(255,255,255,0.5)';
+    ctx.beginPath(); ctx.ellipse(cx+d(dir,4*s),cy+6*s,22*s,8*s,0,0,Math.PI*2); ctx.fill();
+    // 白い斑点模様（特徴！）
+    ctx.fillStyle='rgba(255,255,255,0.55)'; ctx.shadowBlur=0;
+    const spots=[[-12,-8],[0,-11],[12,-7],[-8,2],[4,3],[14,-1],[-14,4],[8,8],[-4,9]];
+    spots.forEach(([ox,oy])=>{
+      ctx.beginPath(); ctx.arc(cx+d(dir,ox*s),cy+oy*s,3.5*s,0,Math.PI*2); ctx.fill();
+    });
+    // 背びれ
+    ctx.fillStyle='#0a3a6e'; ctx.globalAlpha=.9;
+    ctx.beginPath();
+    ctx.moveTo(cx+d(dir,4*s),cy-16*s); ctx.lineTo(cx+d(dir,12*s),cy-36*s); ctx.lineTo(cx+d(dir,-4*s),cy-20*s);
+    ctx.closePath(); ctx.fill(); ctx.globalAlpha=1;
+    // 胸びれ
+    ctx.fillStyle='#0d47a1'; ctx.globalAlpha=.8;
+    ctx.beginPath(); ctx.ellipse(cx+d(dir,10*s),cy+14*s,18*s,6*s,.3,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1;
+    // 口（大きい）
+    ctx.strokeStyle='rgba(0,0,0,0.4)'; ctx.lineWidth=3*s;
+    ctx.beginPath(); ctx.arc(cx+d(dir,28*s),cy+5*s,8*s,.3,Math.PI*.9); ctx.stroke();
+    // 目
+    ctx.shadowBlur=0;
+    ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(cx+d(dir,22*s),cy-4*s,4.5*s,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=type.eyeColor; ctx.globalAlpha=.7;
+    ctx.beginPath(); ctx.arc(cx+d(dir,23.5*s),cy-5.5*s,1.8*s,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1;
+  }
+
+  ctx.restore();
+
+  // エサバー（swimmingのみ）
+  if(rf.state==='swimming') drawFeedBar(rf);
+
+  // ハート
+  if(rf.showHeart){
+    const ha=Math.max(0,1-rf.heartAnim);
+    ctx.save(); ctx.globalAlpha=ha;
+    ctx.font=(16+rf.heartAnim*12)+'px sans-serif'; ctx.textAlign='center';
+    ctx.fillStyle='#ff4081';
+    ctx.fillText('💕',rf.x,rf.y-24-rf.heartAnim*28);
+    ctx.restore();
+  }
+}
+
+function drawFeedBar(rf){
+  const bW=50, bH=7;
+  const x=rf.x-bW/2, y=rf.y-36;
+  const prog=Math.max(0,Math.min(1,rf.foodGiven/rf.type.needFood));
+  ctx.save();
+  ctx.shadowBlur=0;
+  ctx.fillStyle='rgba(0,0,0,0.6)';
+  ctx.beginPath(); ctx.rect(x,y,bW,bH); ctx.fill();
+  if(prog>0 && bW*prog>1){
+    ctx.fillStyle=rf.type.glowColor;
+    ctx.shadowBlur=8; ctx.shadowColor=rf.type.glowColor;
+    ctx.beginPath(); ctx.rect(x,y,bW*prog,bH); ctx.fill(); ctx.shadowBlur=0;
+  }
+  const remain=Math.max(0,rf.type.needFood-rf.foodGiven);
+  if(remain>0){
+    ctx.fillStyle='rgba(255,255,255,0.85)'; ctx.font='bold 9px sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('♥'.repeat(remain),rf.x,y-6);
+  }
+  ctx.restore();
+}
+
+// =====================
+//  仲間の魚（全種対応・dir方式）
+// =====================
+function drawCompanionFish(c, isSelected){
+  const type=c.type;
+  const s=Math.min(type.size*.7, 1.6); // whaleが大きすぎないよう上限
+  const glow=(Math.sin(c.glowAnim)+1)/2;
+  const tail=Math.sin(c.tailAnim)*.35;
+  const dir=c.facingRight?1:-1;
+  const now=Date.now();
+  const cx=c.x, cy=c.y;
+
+  if(isSelected){
+    ctx.save(); ctx.strokeStyle='#0ff'; ctx.lineWidth=2;
+    ctx.setLineDash([5,4]); ctx.lineDashOffset=-(now*.04);
+    ctx.shadowBlur=10; ctx.shadowColor=type.glowColor; ctx.globalAlpha=.8;
+    ctx.beginPath(); ctx.ellipse(cx,cy,22*s,14*s,0,0,Math.PI*2); ctx.stroke();
+    ctx.setLineDash([]); ctx.restore();
+  }
+
+  ctx.save();
+  ctx.shadowBlur=Math.min((isSelected?14:7)+glow*8, 28); ctx.shadowColor=type.glowColor;
+
+  // 共通：尾びれ
+  ctx.fillStyle=type.finColor;
+  ctx.beginPath();
+  ctx.moveTo(cx+d(dir,-13*s),cy);
+  ctx.lineTo(cx+d(dir,-21*s+tail*7*s),cy-10*s);
+  ctx.lineTo(cx+d(dir,-21*s-tail*3*s),cy);
+  ctx.lineTo(cx+d(dir,-21*s+tail*7*s),cy+10*s);
+  ctx.closePath(); ctx.fill();
+
+  // 共通：体
+  const bg2=ctx.createLinearGradient(cx,cy-9*s,cx,cy+9*s+0.1);
+  bg2.addColorStop(0,lightenColor(type.bodyColor,40));
+  bg2.addColorStop(1,type.bodyColor);
+  ctx.fillStyle=bg2;
+  ctx.beginPath(); ctx.ellipse(cx,cy,17*s,9.5*s,0,0,Math.PI*2); ctx.fill();
+
+  // 種類マーク
+  ctx.shadowBlur=0;
+  if(type.drawStyle==='shark'||type.drawStyle==='goblin'){
+    // 背びれ
+    ctx.fillStyle=type.finColor; ctx.globalAlpha=.85;
+    ctx.beginPath();
+    ctx.moveTo(cx+d(dir,2*s),cy-9*s);
+    ctx.lineTo(cx+d(dir,6*s),cy-18*s);
+    ctx.lineTo(cx+d(dir,-3*s),cy-11*s);
+    ctx.closePath(); ctx.fill(); ctx.globalAlpha=1;
+    // お腹白
+    ctx.fillStyle='rgba(236,239,241,0.45)';
+    ctx.beginPath(); ctx.ellipse(cx,cy+3*s,10*s,4*s,0,0,Math.PI*2); ctx.fill();
+    if(type.drawStyle==='goblin'){
+      // ミツクリザメの吻（小さい）
+      ctx.fillStyle='#b71c1c';
+      ctx.beginPath();
+      ctx.moveTo(cx+d(dir,15*s),cy-2*s);
+      ctx.lineTo(cx+d(dir,26*s),cy);
+      ctx.lineTo(cx+d(dir,15*s),cy+2*s);
+      ctx.closePath(); ctx.fill();
+    }
+  } else if(type.drawStyle==='whale'){
+    ctx.fillStyle='rgba(225,245,254,0.4)';
+    ctx.beginPath(); ctx.ellipse(cx,cy+3.5*s,11*s,4.5*s,0,0,Math.PI*2); ctx.fill();
+  } else if(type.drawStyle==='manta'){
+    // 小さい翼ヒント
+    ctx.fillStyle=type.finColor; ctx.globalAlpha=.6;
+    ctx.beginPath(); ctx.ellipse(cx,cy-3*s,17*s,5*s,0,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1;
+  } else if(type.drawStyle==='clown'){
+    ctx.fillStyle='rgba(255,255,255,0.7)';
+    for(let ci=0;ci<2;ci++){
+      ctx.beginPath(); ctx.ellipse(cx+d(dir,-3*s+ci*7*s),cy,2*s,9.5*s,0,0,Math.PI*2); ctx.fill();
+    }
+  } else if(type.drawStyle==='angler'){
+    // 提灯（小さい）
+    const lx2=cx+d(dir,14*s+Math.sin(c.glowAnim*2)*2);
+    const ly2=cy-14*s+Math.cos(c.glowAnim)*3;
+    ctx.strokeStyle='#ce93d8'; ctx.lineWidth=1.2*s;
+    ctx.beginPath(); ctx.moveTo(cx+d(dir,6*s),cy-9*s); ctx.lineTo(lx2,ly2); ctx.stroke();
+    ctx.fillStyle='#ffe082'; ctx.shadowBlur=8; ctx.shadowColor='#ffe082';
+    ctx.beginPath(); ctx.arc(lx2,ly2,3*s,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0;
+  } else if(type.drawStyle==='turtle'){
+    ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.lineWidth=1.2*s;
+    ctx.beginPath(); ctx.ellipse(cx,cy,10*s,7*s,0,0,Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx-10*s,cy); ctx.lineTo(cx+10*s,cy); ctx.stroke();
+  } else if(type.drawStyle==='octopus'){
+    // 足3本ちょこっと
+    ctx.strokeStyle=type.bodyColor; ctx.lineWidth=2.5*s;
+    for(let li=0;li<5;li++){
+      const angle=(li/5)*Math.PI+Math.PI*.15;
+      const wag=Math.sin(c.tailAnim+li*.8)*.25;
+      ctx.beginPath(); ctx.moveTo(cx+Math.cos(angle+wag)*10*s,cy+Math.sin(angle+wag)*8*s+3*s);
+      ctx.lineTo(cx+Math.cos(angle+wag+.4)*18*s,cy+Math.sin(angle+wag+.4)*16*s+6*s); ctx.stroke();
+    }
+    ctx.fillStyle='rgba(240,150,200,0.35)';
+    ctx.beginPath(); ctx.ellipse(cx,cy-1*s,13*s,10*s,0,0,Math.PI*2); ctx.fill();
+  } else if(type.drawStyle==='squid'){
+    // 触手ヒント
+    ctx.strokeStyle='rgba(180,190,255,0.7)'; ctx.lineWidth=1.5*s;
+    for(let ai=0;ai<4;ai++){
+      const ay=(ai-1.5)*3*s;
+      ctx.beginPath(); ctx.moveTo(cx+d(dir,-12*s),cy+ay); ctx.lineTo(cx+d(dir,-22*s),cy+ay*1.3); ctx.stroke();
+    }
+  } else if(type.drawStyle==='jellyfish'){
+    // 傘と短い触手
+    ctx.fillStyle='rgba(220,160,255,0.5)';
+    ctx.beginPath(); ctx.ellipse(cx,cy-1*s,14*s,9*s,0,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='rgba(200,120,255,0.6)'; ctx.lineWidth=1.5*s;
+    for(let ti=0;ti<5;ti++){
+      const tx=cx+(ti-2)*5*s;
+      const wag=Math.sin(c.tailAnim+ti*.9)*4*s;
+      ctx.beginPath(); ctx.moveTo(tx,cy+7*s); ctx.lineTo(tx+wag,cy+16*s); ctx.stroke();
+    }
+  } else if(type.drawStyle==='hammer'){
+    // ハンマー頭ミニ
+    ctx.fillStyle='#546e7a'; ctx.shadowBlur=0;
+    ctx.beginPath(); ctx.rect(cx+d(dir,12*s)-1.5*s,cy-7*s,3*s,14*s); ctx.fill();
+    ctx.fillStyle='#607d8b';
+    ctx.beginPath(); ctx.ellipse(cx+d(dir,16*s),cy,7*s,3.5*s,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#455a64'; ctx.globalAlpha=.8;
+    ctx.beginPath(); ctx.moveTo(cx+d(dir,2*s),cy-9*s); ctx.lineTo(cx+d(dir,6*s),cy-18*s); ctx.lineTo(cx+d(dir,-3*s),cy-11*s); ctx.closePath(); ctx.fill(); ctx.globalAlpha=1;
+  } else if(type.drawStyle==='seahorse'){
+    // タツノオトシゴはそのまま縦長シルエット
+    ctx.fillStyle=type.bodyColor;
+    ctx.beginPath(); ctx.ellipse(cx,cy,5*s,9*s,0,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle=type.finColor; ctx.lineWidth=2.5*s;
+    ctx.beginPath(); ctx.moveTo(cx,cy+9*s); ctx.quadraticCurveTo(cx+d(dir,7*s),cy+14*s,cx+d(dir,4*s),cy+19*s); ctx.stroke();
+  } else if(type.drawStyle==='whale2'){
+    // ジンベイザメ小：斑点だけ
+    ctx.fillStyle='rgba(255,255,255,0.4)';
+    ctx.beginPath(); ctx.ellipse(cx+d(dir,2*s),cy+4*s,14*s,5.5*s,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,0.5)';
+    [[-6,-4],[2,-6],[10,-3],[-2,3],[8,4]].forEach(([ox,oy])=>{
+      ctx.beginPath(); ctx.arc(cx+d(dir,ox*s),cy+oy*s,2.5*s,0,Math.PI*2); ctx.fill();
+    });
+  }
+
+  // 目（共通）
+  ctx.shadowBlur=0;
+  ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(cx+d(dir,11*s),cy-2.5*s,2.8*s,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle=type.eyeColor;
+  ctx.beginPath(); ctx.arc(cx+d(dir,12*s),cy-3.5*s,1.2*s,0,Math.PI*2); ctx.fill();
+
+  ctx.restore();
+}
+
+// =====================
+//  UI
+// =====================
+function updateUI(){
+  document.getElementById('foodCount').textContent=score.food;
+  document.getElementById('sizeLabel').textContent=SIZES[fish.sizeIndex].name;
+  document.getElementById('treasureCount').textContent=score.treasure;
+  document.getElementById('companionCount').textContent=companions.length;
+}
+let msgTimer;
+function showMessage(text){
+  const el=document.getElementById('message');
+  el.textContent=text; el.classList.add('show');
+  clearTimeout(msgTimer);
+  msgTimer=setTimeout(()=>el.classList.remove('show'),2600);
+}
+
+document.getElementById('startBtn').addEventListener('click',()=>{
+  document.getElementById('overlay').style.display='none';
+  initGame(); gameRunning=true; gameLoop();
+});
+
+if(!CanvasRenderingContext2D.prototype.roundRect){
+  CanvasRenderingContext2D.prototype.roundRect=function(x,y,w,h,r){
+    if(typeof r==='number') r=[r,r,r,r];
+    else if(r.length===2) r=[r[0],r[1],r[0],r[1]];
+    this.beginPath();
+    this.moveTo(x+r[0],y); this.lineTo(x+w-r[1],y);
+    this.quadraticCurveTo(x+w,y,x+w,y+r[1]); this.lineTo(x+w,y+h-r[2]);
+    this.quadraticCurveTo(x+w,y+h,x+w-r[2],y+h); this.lineTo(x+r[3],y+h);
+    this.quadraticCurveTo(x,y+h,x,y+h-r[3]); this.lineTo(x,y+r[0]);
+    this.quadraticCurveTo(x,y,x+r[0],y); this.closePath();
+  };
+}
+
+</script>
+
+</body>
+</html>
